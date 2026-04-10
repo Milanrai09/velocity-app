@@ -124,14 +124,14 @@ export async function POST(request) {
         networkConfiguration: {
           awsvpcConfiguration: {
             assignPublicIp: 'ENABLED',
-            subnets: process.env.NEXTJS_AWS_SUBNETS?.split(','),
-            securityGroups: [process.env.NEXTJS_AWS_SECURITY_GROUP]
+            subnets: process.env.AWS_SUBNETS?.split(','),
+            securityGroups: [process.env.AWS_SECURITY_GROUP]
           }
         },
         overrides: {
           containerOverrides: [
             {
-              name: 'build-server-container',
+              name: 'nextjs-build-system',
               environment: [...baseEnv, ...dynamicEnv]  // base + user-supplied envs
             }
           ]
