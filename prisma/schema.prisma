@@ -31,25 +31,20 @@ model User {
   createdAt   DateTime @default(now())
 }
 
-
 model Deployment {
   id           String   @id @default(uuid())
-  name         String   // deploymentName
+  name         String
 
   projectSlug  String   @unique
-  proxyUrl     String   // full generated proxy URL
+  proxyUrl     String
+
+  env          Json     // 🔥 store all env here
 
   userId       String
   user         User     @relation(fields: [userId], references: [id])
 
   createdAt    DateTime @default(now())
-
-  @@index([userId])
 }
-
-
-
-
 
 
 
