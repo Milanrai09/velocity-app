@@ -1,55 +1,67 @@
 import { NextResponse } from 'next/server'
 import { ECSClient, RunTaskCommand } from '@aws-sdk/client-ecs'
-
 import { prisma } from '@/lib/prisma'
 
-
-
 const ecsClient = new ECSClient({
-    region: process.env.AWS_REGION,
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-    }
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+  }
 })
 
-
 export async function POST(request) {
-    try {
-        // const session = await getSession();
+  try {
+    const {
+      deploymentName,
+      gitURL,
+      deploymentType,
+      userId,
+      projectId,
+      envVars,           // { KEY: 'value', ... } or undefined
+    } = await request.json()
 
-      const {
-        deploymentName,
-        gitURL,
-        deploymentType,
-        userId,
-        projectId
-      } = await request.json()
-      console.log(    deploymentName,
-        gitURL,
-        deploymentType,
-        userId,
-        projectId,process.env.AWS_BUILDER_IMAGE)
-  
-      // 1. Fetch username
-      // const user = await prisma.user.findUnique({
-      //   where: { id: userId },
-      //   select: { username: true }
-      // })
-  
-      // if (!user) {
-      //   return NextResponse.json({ error: 'User not found' }, { status: 404 })
-      // }
-  
-      // 2. Generate numeric suffix
-      const randomNumber = Math.floor(100000 + Math.random() * 900000)
-      const normalizedProjectId = String(projectId || '').replace(/\s+/g, '')
-      const projectSlug = `${normalizedProjectId}-${randomNumber}`
-  
-      // 3. Build proxy URL
-      const proxyUrl = `http://${projectSlug}.velocity-reverse-proxy.vercel.app`
+    // =========================================
+    // 🔢 Generate slug
+    // =========================================
+    const randomNumber = Math.floor(100000 + Math.random() * 900000)
+    const normalizedProjectId = String(projectId || '').replace(/\s+/g, '')
+    const projectSlug = `${normalizedProjectId}-${randomNumber}`
 
-      // 4. Queue ECS task
+    const proxyUrl = `http://${projectSlug}.velocity-reverse-proxy.vercel.app`
+
+    // =========================================
+    // 🌿 Dynamic env vars (Next.js only)
+    // =========================================
+    const dynamicEnv = []
+
+    if (envVars && typeof envVars === 'object') {
+      for (const [key, value] of Object.entries(envVars)) {
+        if (key.trim() && value && String(value).trim() !== '') {
+          dynamicEnv.push({
+            name: key.trim(),
+            value: String(value).trim()
+          })
+        }
+      }
+    }
+
+    // =========================================
+    // 🧱 Base env
+    // =========================================
+    const baseEnv = [
+      { name: 'GIT_REPOSITORY__URL', value: gitURL },
+      { name: 'PROJECT_ID', value: projectSlug },
+      { name: 'USER_ID', value: userId }
+    ]
+
+
+
+
+    // =========================================
+    // ⚛️ REACT
+    // =========================================
+    if (deploymentType === "react") {
       const command = new RunTaskCommand({
         cluster: process.env.AWS_ECS_CLUSTER,
         taskDefinition: process.env.AWS_ECS_TASK_DEFINITION,
@@ -74,20 +86,19 @@ export async function POST(request) {
           ]
         }
       })
-  
+
       await ecsClient.send(command)
 
-  
-      // 5. Save deployment to DB
-      const deployment = await prisma.Deployment.create({
+      const deployment = await prisma.deployment.create({
         data: {
           name: deploymentName,
           projectSlug,
           proxyUrl,
-          userId
+          userId,
+          deploymentType
         }
       })
-  
+
       return NextResponse.json({
         status: 'queued',
         data: {
@@ -96,11 +107,74 @@ export async function POST(request) {
           url: proxyUrl
         }
       })
-    } catch (error) {
-      console.error('Error queueing project:', error)
-      return NextResponse.json(
-        { error: 'Failed to queue project' },
-        { status: 500 }
-      )
     }
+
+
+
+
+    // =========================================
+    // ⚡ NEXTJS
+    // =========================================
+    if (deploymentType === "nextjs") {
+      const command = new RunTaskCommand({
+        cluster: process.env.NEXTJS_AWS_ECS_CLUSTER,
+        taskDefinition: process.env.NEXTJS_AWS_ECS_TASK_DEFINITION,
+        launchType: 'FARGATE',
+        count: 1,
+        networkConfiguration: {
+          awsvpcConfiguration: {
+            assignPublicIp: 'ENABLED',
+            subnets: process.env.AWS_SUBNETS?.split(','),
+            securityGroups: [process.env.AWS_SECURITY_GROUP]
+          }
+        },
+        overrides: {
+          containerOverrides: [
+            {
+              name: 'nextjs-build-system',
+              environment: [...baseEnv, ...dynamicEnv]  // base + user-supplied envs
+            }
+          ]
+        }
+      })
+
+      await ecsClient.send(command)
+
+      const deployment = await prisma.deployment.create({
+        data: {
+          name: deploymentName,
+          projectSlug,
+          proxyUrl,
+          userId,
+          deploymentType,
+          env: envVars ?? {}
+        }
+      })
+
+      return NextResponse.json({
+        status: 'queued',
+        data: {
+          deploymentId: deployment.id,
+          projectSlug,
+          url: proxyUrl
+        }
+      })
+    }
+
+    // =========================================
+    // ❌ INVALID TYPE
+    // =========================================
+    return NextResponse.json(
+      { error: 'Invalid deployment type' },
+      { status: 400 }
+    )
+
+  } catch (error) {
+    console.error('Error queueing project:', error)
+
+    return NextResponse.json(
+      { error: 'Failed to queue project' },
+      { status: 500 }
+    )
   }
+}
