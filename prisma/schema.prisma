@@ -1,0 +1,58 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model User {
+  id          String   @id              // auth0 user id
+  email       String   @unique          // from auth0
+
+  displayName String?                   // custom display name
+  avatarUrl   String?                   // profile image
+  bio         String?                   // short bio
+  website     String?                   // personal / portfolio link
+
+  gender      String?
+  dob         DateTime?
+
+  deployments Deployment[]
+
+  createdAt   DateTime @default(now())
+}
+
+
+model Deployment {
+  id           String   @id @default(uuid())
+  name         String   // deploymentName
+
+  projectSlug  String   @unique
+  proxyUrl     String   // full generated proxy URL
+
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+
+
+
+
+
+
+
+
+
